@@ -1,120 +1,138 @@
-# train_model.py
+# train_model.py - Updated for Student Performance Data with GPA and Grade Class prediction
 
 # 📦 Import libraries needed for data handling, machine learning, and saving models
 import pandas as pd
+import joblib
+import os
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.pipeline import Pipeline
-import joblib
-import os
 
 # 📁 Make sure the folder for saving trained models exists (create if not)
 os.makedirs("trained_data", exist_ok=True)
 
-# 📥 Load the dataset containing student performance data
-df = pd.read_csv('csv/StudentsPerformance.csv')
+# 📥 Load the new dataset containing student performance data
+df = pd.read_csv('csv/Student_performance_data _.csv')
 
-# ✅ Define a "pass/fail" criterion for each subject
-# Assuming a passing grade is 75 or higher
-def determine_pass_fail(score):
-    return 'Pass' if score >= 75 else 'Fail'
+# 🔍 Display basic info about the dataset
+print("Dataset shape:", df.shape)
+print("Columns:", df.columns.tolist())
+print("\nFirst few rows:")
+print(df.head())
 
-# Apply the pass/fail criterion to each subject
-df['Math_Result'] = df['math score'].apply(determine_pass_fail)
-df['Reading_Result'] = df['reading score'].apply(determine_pass_fail)
-df['Writing_Result'] = df['writing score'].apply(determine_pass_fail)
+# 🧹 Data preprocessing - prepare features (X) and targets (y)
+# Select features - all columns except StudentID, GPA, and GradeClass
+feature_columns = [col for col in df.columns if col not in ['StudentID', 'GPA', 'GradeClass']]
+X = df[feature_columns].copy()
 
-# 🔤 Encode the pass/fail results as binary values (Pass = 1, Fail = 0)
-result_encoder = LabelEncoder()
-df['Math_Result'] = result_encoder.fit_transform(df['Math_Result'])
-df['Reading_Result'] = result_encoder.fit_transform(df['Reading_Result'])
-df['Writing_Result'] = result_encoder.fit_transform(df['Writing_Result'])
+# 🎯 Define targets
+y_gpa = df['GPA']  # Regression target
+y_grade_class = df['GradeClass']  # Classification target
 
-# Save the encoder for future use
-joblib.dump(result_encoder, 'trained_data/result_encoder.pkl')
+print(f"\nFeatures used: {feature_columns}")
+print(f"GPA range: {y_gpa.min():.2f} to {y_gpa.max():.2f}")
+print(f"Grade Classes: {sorted(y_grade_class.unique())}")
 
-# 🔢 Prepare input features by selecting relevant columns
-# Drop the original scores and results to avoid data leakage for classification
-X_raw = df.drop(columns=[
-    'math score', 'reading score', 'writing score',
-    'Math_Result', 'Reading_Result', 'Writing_Result'
-])
+# 📊 Split data into training and test sets
+X_train, X_test, y_train_gpa, y_test_gpa, y_train_grade, y_test_grade = train_test_split(
+    X, y_gpa, y_grade_class, test_size=0.2, random_state=42, stratify=y_grade_class
+)
 
-# 🧠 Convert all categorical variables into numerical format using one-hot encoding
-X = pd.get_dummies(X_raw)
+# 💾 Save feature names for future use in predictions
+joblib.dump(feature_columns, 'trained_data/feature_columns.pkl')
 
-# Save the list of features for future use
-joblib.dump(X.columns.tolist(), 'trained_data/model_features.pkl')
-
-# 🎯 Define the targets for classification and regression
-y_math_class = df['Math_Result']
-y_reading_class = df['Reading_Result']
-y_writing_class = df['Writing_Result']
-
-y_math_reg = df['math score']
-y_reading_reg = df['reading score']
-y_writing_reg = df['writing score']
-
-# 📊 Split the data into training and test sets for each target
-X_train, X_test, y_train_math_class, y_test_math_class = train_test_split(X, y_math_class, test_size=0.2, random_state=42)
-_, _, y_train_reading_class, y_test_reading_class = train_test_split(X, y_reading_class, test_size=0.2, random_state=42)
-_, _, y_train_writing_class, y_test_writing_class = train_test_split(X, y_writing_class, test_size=0.2, random_state=42)
-
-X_train_reg, X_test_reg, y_train_math_reg, y_test_math_reg = train_test_split(X, y_math_reg, test_size=0.2, random_state=42)
-_, _, y_train_reading_reg, y_test_reading_reg = train_test_split(X, y_reading_reg, test_size=0.2, random_state=42)
-_, _, y_train_writing_reg, y_test_writing_reg = train_test_split(X, y_writing_reg, test_size=0.2, random_state=42)
-
-# 🛠 Create pipelines for classification and regression
-def create_classification_pipeline():
-    return Pipeline([
-        ('scaler', StandardScaler()),  # Normalize features for better performance
-        ('classifier', MLPClassifier(
-            hidden_layer_sizes=(64,),   # One hidden layer with 64 neurons
-            activation='relu',          # Activation function for hidden layer
-            max_iter=2000,              # Maximum training cycles
-            early_stopping=True,        # Stop early if model is not improving
-            random_state=42             # Fix seed for reproducibility
-        ))
-    ])
-
-def create_regression_pipeline():
+# 🔧 Create pipeline for GPA regression
+def create_gpa_regression_pipeline():
     return Pipeline([
         ('scaler', StandardScaler()),  # Normalize features for better performance
         ('regressor', MLPRegressor(
-            hidden_layer_sizes=(64,),   # One hidden layer with 64 neurons
-            activation='relu',          # Activation function for hidden layer
-            max_iter=2000,              # Maximum training cycles
-            early_stopping=True,        # Stop early if model is not improving
-            random_state=42             # Fix seed for reproducibility
+            hidden_layer_sizes=(100, 50),  # Two hidden layers with 100 and 50 neurons
+            activation='relu',              # Activation function for hidden layers
+            max_iter=3000,                  # Maximum training cycles
+            early_stopping=True,            # Stop early if model is not improving
+            validation_fraction=0.1,        # Use 10% of training data for validation
+            n_iter_no_change=20,            # Stop if no improvement for 20 iterations
+            random_state=42                 # Fix seed for reproducibility
         ))
     ])
 
-# 🧠 Train classification models
-math_class_pipeline = create_classification_pipeline()
-math_class_pipeline.fit(X_train, y_train_math_class)
-joblib.dump(math_class_pipeline, 'trained_data/model_math_class.pkl')
+# 🔧 Create pipeline for Grade Class classification
+def create_grade_class_pipeline():
+    return Pipeline([
+        ('scaler', StandardScaler()),  # Normalize features for better performance
+        ('classifier', MLPClassifier(
+            hidden_layer_sizes=(100, 50),  # Two hidden layers with 100 and 50 neurons
+            activation='relu',              # Activation function for hidden layers
+            max_iter=3000,                  # Maximum training cycles
+            early_stopping=True,            # Stop early if model is not improving
+            validation_fraction=0.1,        # Use 10% of training data for validation
+            n_iter_no_change=20,            # Stop if no improvement for 20 iterations
+            random_state=42                 # Fix seed for reproducibility
+        ))
+    ])
 
-reading_class_pipeline = create_classification_pipeline()
-reading_class_pipeline.fit(X_train, y_train_reading_class)
-joblib.dump(reading_class_pipeline, 'trained_data/model_reading_class.pkl')
+# 🧠 Train GPA regression model
+print("\n🧠 Training GPA regression model...")
+gpa_pipeline = create_gpa_regression_pipeline()
+gpa_pipeline.fit(X_train, y_train_gpa)
 
-writing_class_pipeline = create_classification_pipeline()
-writing_class_pipeline.fit(X_train, y_train_writing_class)
-joblib.dump(writing_class_pipeline, 'trained_data/model_writing_class.pkl')
+# Evaluate GPA model
+gpa_train_score = gpa_pipeline.score(X_train, y_train_gpa)
+gpa_test_score = gpa_pipeline.score(X_test, y_test_gpa)
+print(f"GPA Model - Training R²: {gpa_train_score:.4f}")
+print(f"GPA Model - Test R²: {gpa_test_score:.4f}")
 
-# 🧠 Train regression models
-math_reg_pipeline = create_regression_pipeline()
-math_reg_pipeline.fit(X_train_reg, y_train_math_reg)
-joblib.dump(math_reg_pipeline, 'trained_data/model_math_reg.pkl')
+# Save GPA model
+joblib.dump(gpa_pipeline, 'trained_data/gpa_model.pkl')
+print("✅ GPA regression model saved!")
 
-reading_reg_pipeline = create_regression_pipeline()
-reading_reg_pipeline.fit(X_train_reg, y_train_reading_reg)
-joblib.dump(reading_reg_pipeline, 'trained_data/model_reading_reg.pkl')
+# 🧠 Train Grade Class classification model
+print("\n🧠 Training Grade Class classification model...")
+grade_class_pipeline = create_grade_class_pipeline()
+grade_class_pipeline.fit(X_train, y_train_grade)
 
-writing_reg_pipeline = create_regression_pipeline()
-writing_reg_pipeline.fit(X_train_reg, y_train_writing_reg)
-joblib.dump(writing_reg_pipeline, 'trained_data/model_writing_reg.pkl')
+# Evaluate Grade Class model
+grade_train_score = grade_class_pipeline.score(X_train, y_train_grade)
+grade_test_score = grade_class_pipeline.score(X_test, y_test_grade)
+print(f"Grade Class Model - Training Accuracy: {grade_train_score:.4f}")
+print(f"Grade Class Model - Test Accuracy: {grade_test_score:.4f}")
 
-# ✅ Print final message to indicate all models are ready
-print("✅ Training complete. All models saved to 'trained_data/'")
+# Save Grade Class model
+joblib.dump(grade_class_pipeline, 'trained_data/grade_class_model.pkl')
+print("✅ Grade Class classification model saved!")
+
+# 🔍 Display class distribution
+print(f"\nGrade Class distribution in training set:")
+print(y_train_grade.value_counts().sort_index())
+
+# 📝 Create a simple test prediction to verify models work
+print(f"\n🧪 Testing models with first sample...")
+sample_features = X_test.iloc[0:1]  # Take first test sample
+predicted_gpa = gpa_pipeline.predict(sample_features)[0]
+predicted_class = grade_class_pipeline.predict(sample_features)[0]
+actual_gpa = y_test_gpa.iloc[0]
+actual_class = y_test_grade.iloc[0]
+
+print(f"Sample prediction:")
+print(f"  Predicted GPA: {predicted_gpa:.3f} (Actual: {actual_gpa:.3f})")
+print(f"  Predicted Grade Class: {predicted_class} (Actual: {actual_class})")
+
+# 💾 Save model metadata
+model_info = {
+    'features': feature_columns,
+    'gpa_model_path': 'trained_data/gpa_model.pkl',
+    'grade_class_model_path': 'trained_data/grade_class_model.pkl',
+    'feature_columns_path': 'trained_data/feature_columns.pkl',
+    'training_samples': len(X_train),
+    'test_samples': len(X_test),
+    'gpa_test_r2': gpa_test_score,
+    'grade_class_test_accuracy': grade_test_score
+}
+
+joblib.dump(model_info, 'trained_data/model_info.pkl')
+
+print(f"\n✅ Training complete!")
+print(f"📁 All models and metadata saved to 'trained_data/' directory")
+print(f"📊 Dataset: {len(df)} samples, {len(feature_columns)} features")
+print(f"🎯 Models trained for: GPA prediction (regression) and Grade Class prediction (classification)")
